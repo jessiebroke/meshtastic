@@ -4,8 +4,8 @@
 
 You have a **Heltec WiFi LoRa 32 V3** (ESP32-S3 + SX1262) and need to:
 1. Understand what the two physical buttons do
-2. Flash Meshtastic firmware via [flasher.meshtastic.org](https://flasher.meshtastic.org/) in Chrome
-3. Debug USB-C data connection issues preventing the flasher from detecting the device
+2. Flash Meshtastic firmware via CLI (recommended) or web flasher
+3. Debug USB-C data connection issues preventing detection
 
 ---
 
@@ -62,7 +62,6 @@ The Heltec V3 **does not have ESD protection** on the CP2102 chip. If the chip h
 ## Part 3: Flashing Firmware Step-by-Step
 
 ### Prerequisites
-- **Browser:** Google Chrome or Microsoft Edge (Web Serial API required)
 - **Cable:** USB-A to USB-C data cable (NOT USB-C to USB-C)
 - **OS-specific driver/permission setup** (see below)
 
@@ -70,74 +69,127 @@ The Heltec V3 **does not have ESD protection** on the CP2102 chip. If the chip h
 
 #### Linux (Ubuntu/Debian)
 
-1. **Load kernel modules** (usually loaded automatically, but just in case):
+1. **Install esptool** (the CLI flashing tool):
+   ```bash
+   pip3 install esptool
+   ```
+
+2. **Load kernel modules** (usually loaded automatically, but just in case):
    ```bash
    sudo modprobe usbserial
    sudo modprobe cp210x
    ```
 
-2. **Add your user to the `dialout` group** (required for serial port access):
+3. **Add your user to the `dialout` group** (required for serial port access):
    ```bash
    sudo usermod -a -G dialout $USER
    ```
    Then **log out and back in** (or reboot) for the group change to take effect.
 
-3. **If using Chrome/Chromium installed via Snap** (common on Ubuntu):
-   ```bash
-   sudo snap connect chromium:raw-usb
-   ```
-   This is critical — Snap's sandboxing blocks raw USB access by default. **This is the most commonly missed step on Ubuntu.**
-
 4. **Verify device detection** — Plug in the Heltec V3 and run:
    ```bash
-   lsusb
+   lsusb | grep -i "silicon\|cp21\|10c4"
    ```
-   You should see a line containing `Silicon Labs CP210x UART Bridge`. You can also run:
+   You should see a line containing `Silicon Labs CP210x UART Bridge`. Then confirm the serial device exists:
    ```bash
-   dmesg | tail -20
+   ls /dev/ttyUSB*
    ```
-   Look for: `CP2102N USB to UART Bridge Controller converter detected` and a `/dev/ttyUSB0` (or similar) assignment.
+   You should see `/dev/ttyUSB0` (or `/dev/ttyUSB1`, etc.).
 
 #### Windows
 
-1. Download and install the [Silicon Labs CP210x driver](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers)
-2. **Reboot** after installation
-3. Verify in Device Manager that the device appears under "Ports (COM & LPT)" as "Silicon Labs CP210x USB to UART Bridge"
+1. Install [Python 3](https://www.python.org/downloads/) and then `pip install esptool`
+2. Download and install the [Silicon Labs CP210x driver](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers)
+3. **Reboot** after installation
+4. Verify in Device Manager that the device appears under "Ports (COM & LPT)" as "Silicon Labs CP210x USB to UART Bridge"
 
 #### macOS
 
-1. Download and install the [Silicon Labs CP210x driver](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers)
-2. **Reboot** after installation
-3. You may need to allow the driver in System Preferences > Security & Privacy
+1. Install [Python 3](https://www.python.org/downloads/) and then `pip install esptool`
+2. Download and install the [Silicon Labs CP210x driver](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers)
+3. **Reboot** after installation
+4. You may need to allow the driver in System Preferences > Security & Privacy
 
-### Step 3b: Flash Using the Web Flasher
+### Step 3b: Flash Using esptool CLI (Recommended)
 
-1. Open [flasher.meshtastic.org](https://flasher.meshtastic.org/) in **Google Chrome**
-2. Plug your Heltec V3 into your computer using a **USB-A to USB-C data cable**
-3. Select your device type: **Heltec V3**
-4. Choose the firmware version you want to install
-5. Click **Flash**
-6. When Chrome shows the serial port selection dialog, choose **"CP2102 USB to UART Bridge"**
-7. Wait for the flash to complete
+The CLI method is more reliable than the web flasher. It uses the official `device-install.sh` script bundled with the firmware release.
 
-### Step 3c: If the Flasher Can't Connect
+**1. Download and extract the firmware:**
 
-If the web flasher fails to connect or doesn't see the device:
+Find the latest version at https://github.com/meshtastic/firmware/releases
 
-**Method 1 — Use the 1200bps reset button:**
-The web flasher has a "1200bps reset" option that can automatically put the ESP32-S3 into download mode. Try this first.
+```bash
+# Create a working directory
+mkdir -p /tmp/meshtastic-fw && cd /tmp/meshtastic-fw
 
-**Method 2 — Manual bootloader entry (PRG + RST combo):**
-1. Hold down the **PRG** button
-2. While still holding PRG, press and release the **RST** button once
-3. Release the **PRG** button
-4. The device is now in bootloader/download mode — retry flashing
+# Download the ESP32-S3 firmware bundle (update the version as needed)
+curl -LO https://github.com/meshtastic/firmware/releases/download/v2.7.15.567b8ea/firmware-esp32s3-2.7.15.567b8ea.zip
 
-**Method 3 — Plug-in bootloader entry:**
+# Extract
+unzip firmware-esp32s3-2.7.15.567b8ea.zip
+```
+
+**2. Make sure no other program is using the serial port:**
+
+Close the Meshtastic app, any serial monitors, and especially the web flasher browser tab. If the port is busy, esptool will fail with `Device or resource busy`.
+
+**3. Find your serial port:**
+
+```bash
+ls /dev/ttyUSB*
+```
+
+Note the device path (e.g., `/dev/ttyUSB0`).
+
+**4. Flash the firmware:**
+
+```bash
+cd /tmp/meshtastic-fw
+bash device-install.sh -p /dev/ttyUSB0 -f firmware-heltec-v3-2.7.15.567b8ea.bin
+```
+
+Replace `/dev/ttyUSB0` with your actual port. On Windows use `COM3` (or whatever port Device Manager shows). On macOS use `/dev/cu.SLAB_USBtoUART` or similar.
+
+This script will:
+1. Erase the flash
+2. Write the main firmware at `0x00`
+3. Write the BLE OTA binary (`bleota-s3.bin`) at `0x340000`
+4. Write the filesystem (`littlefs-heltec-v3-*.bin`) at `0x670000`
+
+**5. Wait for it to finish.** You should see `Hash of data verified` after each step. The device will hard-reset automatically when done. The Meshtastic logo should appear on the OLED display.
+
+### Step 3c: Flash Using the Web Flasher (Alternative)
+
+If you prefer a GUI, you can use the web flasher — but note that it can be unreliable (it gave us "Device Unresponsive" errors even with a valid connection).
+
+1. Open [flasher.meshtastic.org](https://flasher.meshtastic.org/) in **Google Chrome** (Web Serial API required)
+2. If Chrome is installed via **Snap** on Ubuntu, you must first run:
+   ```bash
+   sudo snap connect chromium:raw-usb
+   ```
+3. Plug your Heltec V3 in using a **USB-A to USB-C data cable**
+4. Select device type: **Heltec V3**
+5. Choose the firmware version and click **Flash**
+6. In the serial port dialog, choose **"CP2102 USB to UART Bridge"**
+
+### Step 3d: If Flashing Fails
+
+**Port busy error:** Make sure Chrome, the Meshtastic app, and any serial monitors are closed.
+
+**Can't connect at all:** Try manual bootloader entry:
+
+1. Hold down the **PRG** button (top button)
+2. While still holding PRG, press and release **RST** (bottom button) once
+3. Release **PRG**
+4. The OLED should go blank — the device is now in bootloader mode
+5. Retry flashing
+
+**Alternative bootloader entry (plug-in method):**
+
 1. Disconnect the USB cable
 2. Hold down the **PRG** button
-3. While holding PRG, plug in the USB cable
-4. Release the **PRG** button
+3. While holding PRG, plug the USB cable back in
+4. Release **PRG**
 5. Retry flashing
 
 ---
@@ -179,7 +231,14 @@ groups $USER
   ```
   Then **log out and back in** (or reboot). A new terminal alone is NOT enough.
 
-### Diagnostic Step 4: Is Chrome installed via Snap?
+### Diagnostic Step 4: Is something else using the port?
+
+```bash
+lsof /dev/ttyUSB0
+```
+If any process is listed, it's holding the port open. Close that program (Chrome tab, serial monitor, Meshtastic app) before flashing.
+
+### Diagnostic Step 5: Is Chrome installed via Snap? (web flasher only)
 
 ```bash
 which google-chrome-stable || which chromium || snap list 2>/dev/null | grep -i chrom
@@ -188,11 +247,9 @@ which google-chrome-stable || which chromium || snap list 2>/dev/null | grep -i 
   ```bash
   sudo snap connect chromium:raw-usb
   ```
-  This is the **#1 most commonly missed step** on Ubuntu. Snap sandboxing silently blocks USB serial access.
+  Snap sandboxing silently blocks USB serial access. This step is not needed if using the CLI method or if Chrome was installed via `.deb`.
 
-- If you installed Chrome via the `.deb` from Google's website (not Snap), this step is not needed.
-
-### Diagnostic Step 5: Check dmesg for errors
+### Diagnostic Step 6: Check dmesg for errors
 
 ```bash
 dmesg | grep -i "cp210\|ttyUSB\|usb.*serial" | tail -20
@@ -203,17 +260,17 @@ Look for error messages about the device disconnecting, permission denied, or dr
 
 The most common fix sequence for Ubuntu is:
 ```bash
-# 1. Add yourself to dialout group
-sudo usermod -a -G dialout $USER
+# 1. Install esptool
+pip3 install esptool
 
-# 2. Grant Chrome Snap USB access (if using Snap Chrome)
-sudo snap connect chromium:raw-usb
+# 2. Add yourself to dialout group
+sudo usermod -a -G dialout $USER
 
 # 3. Reboot (easiest way to apply group changes)
 sudo reboot
 ```
 
-After reboot, plug in the Heltec V3, open Chrome, go to flasher.meshtastic.org, and try again.
+After reboot, plug in the Heltec V3 and flash using the CLI method in Part 3b.
 
 ---
 
@@ -225,3 +282,5 @@ After reboot, plug in the Heltec V3, open Chrome, go to flasher.meshtastic.org, 
 - [Heltec — WiFi LoRa 32 V3 Product Page](https://heltec.org/project/wifi-lora-32-v3/)
 - [Flashing Heltec V3 on Ubuntu — Brainsteam](https://brainsteam.co.uk/2024/10/19/flashing-heltec-meshtastic/)
 - [Silicon Labs CP210x Drivers](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers)
+- [Meshtastic Firmware Releases](https://github.com/meshtastic/firmware/releases)
+- [esptool — PyPI](https://pypi.org/project/esptool/)
